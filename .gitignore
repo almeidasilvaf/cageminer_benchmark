@@ -3,3 +3,8 @@
 .RData
 .Ruserdata
 data/*.Rmd
+code/installation*
+code/benchmark*
+code/script*
+data/camoco_input/*
+data/archive*

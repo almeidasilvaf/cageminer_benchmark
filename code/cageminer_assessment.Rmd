@@ -1,0 +1,144 @@
+---
+title: |
+  Supplementary Text S2 - cageminer: an R/Bioconductor package to prioritize candidate genes by integrating GWAS and gene coexpression networks
+author:
+- name: Fabricio Almeida-Silva
+  affiliation: Universidade Estadual do Norte Fluminense Darcy Ribeiro
+- name: Thiago M. Venancio
+  affiliation: Universidade Estadual do Norte Fluminense Darcy Ribeiro
+bibliography: bibliography.bib
+output:
+  BiocStyle::pdf_document
+vignette: |
+  %\VignetteIndexEntry{Bechmarking cageminer}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE, 
+    eval = TRUE,
+    message = FALSE,
+    warning = FALSE
+)
+```
+
+
+# Introduction
+
+In a previous study, @michno2020identification demonstrated that 
+Camoco [@schaefer2018integrating] can identify high-confidence candidate genes,
+but only for short sliding windows relative to each SNP. For larger sliding
+windows (e.g., >50 kb), there is a steep increase in the background noise,
+and Camoco is not able to identify any candidate gene 
+[@michno2020identification].
+
+Here, we will assess the performance of cageminer for increasing sliding
+windows relative to each SNP. Our goal here is to check if increasing the 
+sliding windows leads to loss of signal, as happens with the Camoco algorithm.
+The data set used here was obtained from @almeida2021integration,
+and it contains:
+
+- RNA-seq data of soybean (*Glycine max*) response to fungi infection.
+- GWAS-derived SNPs associated with soybean resistance to 
+*Fusarium graminearum*.
+
+# Assessment
+
+The sliding windows we will consider are:
+
+1. 10 kb
+2. 50 kb
+3. 100 kb
+4. 1 Mb
+5. 2 Mb
+
+```{r cageminer}
+set.seed(123) # for reproducibility
+
+#----Load packages--------------------------------------------------------------
+library(cageminer)
+library(here)
+
+#----Load required data---------------------------------------------------------
+load(here("data", "cageminer_input", "gene_ranges.rda"))
+load(here("data", "cageminer_input", "gmax_se.rda"))
+load(here("data", "cageminer_input", "guides.rda"))
+load(here("data", "cageminer_input", "snp_positions.rda"))
+load(here("data", "cageminer_input", "gcn.rda"))
+
+#----Mine candidates------------------------------------------------------------
+windows <- c(0.01, 0.05, 0.1, 1, 2) # expressed in Mbps
+
+start_time <- Sys.time() # Not required, just to get start time
+mined_candidates <- lapply(windows, function(x) {
+    
+    message("Sliding window: ", x, " Mbp")
+    
+    cand <- mine_candidates(
+        gene_ranges = gene_ranges, 
+        marker_ranges = snp_positions,
+        window = x,
+        exp = gmax_se,
+        gcn = gcn,
+        guides = guides,
+        sample_group = c("Fgr_stress_PI567301B", "Fgr_stress_wyandot")
+    )
+    return(cand)
+})
+end_time <- Sys.time() # Not required, just to get end time
+
+# Count number of genes for each interval
+candidate_count <- lapply(seq_along(mined_candidates), function(x) {
+    count_df <- data.frame(
+        window_mb = windows[x],
+        ngenes = length(unique(mined_candidates[[x]]$gene))
+    )
+    return(count_df)
+})
+candidate_count_cageminer <- Reduce(rbind, candidate_count)
+knitr::kable(candidate_count_cageminer, col.names = c("Window (Mb)", "Genes"))
+```
+
+As we can see, increasing sliding windows in 
+`r BiocStyle::Biocpkg("cageminer")` has the opposite effect of increasing 
+sliding windows in Camoco. The larger the sliding window, the more candidate
+genes we find. This finding shows that `r BiocStyle::Biocpkg("cageminer")` 
+can find high-confidence candidate genes that are not necessarily close to 
+causative SNPs, which includes genes in enhancers and other distal 
+regulatory regions that would have been overlooked by Camoco.
+
+
+To conclude, let's look at how long it took for 
+`r BiocStyle::Biocpkg("cageminer")` to mine candidate genes:
+
+```{r runtime}
+runtime <- end_time - start_time
+runtime
+```
+
+It took only `r round(runtime)` seconds for `r BiocStyle::Biocpkg("cageminer")` 
+to mine candidate genes using 5 different sliding windows.
+
+```{r save_data, echo = FALSE}
+# Save data frame of gene number for each interval
+save(
+    candidate_count_cageminer,
+    file = here("products", "result_files", "candidate_count_cageminer.rda"),
+    compress = "xz"
+)
+
+```
+
+# Session information {.unnumbered}
+
+This document was created under the following conditions:
+
+```{r session_info}
+sessioninfo::session_info()
+```
+
+# References {.unnumbered}
+

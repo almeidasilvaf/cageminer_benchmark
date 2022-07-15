@@ -4,9 +4,8 @@ Data acquisition
 # Overview
 
 Here, we describe the code to create the input data for
-*[cageminer](https://bioconductor.org/packages/3.15/cageminer)* and
-[Camoco](https://camoco.readthedocs.io/en/latest/index.html), which are
-stored in `cageminer_input/` and `camoco_input/`, respectively.
+*[cageminer](https://bioconductor.org/packages/3.15/cageminer)*, which
+are stored in `cageminer_input/`.
 
 ``` r
 # Load required packages
@@ -14,6 +13,8 @@ library(here)
 library(BioNERO)
 library(tidyverse)
 library(SummarizedExperiment)
+library(GenomicRanges)
+set.seed(123) # for reproducibility
 ```
 
 ## cageminer_input
@@ -30,7 +31,7 @@ need:
     `guides.rda`.
 5.  A gene coexpression network inferred with
     *[BioNERO](https://bioconductor.org/packages/3.15/BioNERO)* -
-    inferred on-the-fly.
+    `gcn.rda`.
 
 Below, you can find the code to create each of these objects.
 
@@ -123,79 +124,27 @@ save(
 )
 ```
 
-## camoco_input
-
-To mine candidate genes with
-[Camoco](https://camoco.readthedocs.io/en/latest/index.html), we will
-need:
-
-1.  Gene annotation in a .GFF file - `annotation.gff`;
-2.  Gene expression in a tab-separated file with genes in row names and
-    samples in column names - `exp_tpm.tsv`;
-3.  SNP positions in a tab-separated file - `gmax_fungi_snps.tsv` - with
-    the fields:
-    -   **Trait**: Trait name
-    -   **CHR:** Chromosome number
-    -   **POS:** SNP position
-
-Below, you can find the code to create each of these files.
-
-### annotation.gff
+### gcn.rda
 
 ``` r
-# Load annotationa and filter it
-annotation <- rtracklayer::import(
-    "https://raw.githubusercontent.com/almeidasilvaf/SoyFungi_GWAS_GCN/main/data/PLAZA_selected.transcripts.gff.gz"
+load(here("data", "cageminer_input", "gmax_se.rda"))
+
+# Infer GCN
+sft <- SFT_fit(gmax_se, net_type = "unsigned", cor_method = "pearson") # 8
+gcn <- exp2gcn(
+    gmax_se, net_type = "unsigned", cor_method = "pearson",
+    SFTpower = 8
 )
-annotation$old_id <- NULL
-annotation$old_tid <- NULL
-annotation <- annotation[annotation$type == "gene"]
-annotation$UniProtKB <- NULL
 
-# Export as GFF
-rtracklayer::export.gff3(
-    annotation, 
-    con = here("data", "camoco_input", "annotation.gff3")
-)
-```
+# Remove unnecessary elements of the list for size issues
+gcn$correlation_matrix <- NULL
+gcn$adjacency_matrix <- NULL
 
-### exp_tpm.tsv
-
-``` r
-# Load whole expression data and filter to only contain fungi-infected soybean
-load("~/Dropbox/Atlas/atlasv2_tpm.rda")
-exp_tpm <- atlas_tpm[, atlas_tpm$Stress_info == "fungus" &
-                   !is.na(atlas_tpm$Stress_info)]
-rm(atlas_tpm)
-
-# Get expression matrix
-exp_tpm <- assay(exp_tpm)
-
-# Remove genes with median expression < 5 (Camoco default)
-exp_tpm_final <- exp_tpm[matrixStats::rowMedians(as.matrix(exp_tpm)) >= 5, ]
-
-# Save as a tab-delimited file
-write.table(
-    exp_tpm_final, quote = FALSE, sep = "\t",
-    file = here::here("data", "camoco_input", "exp_tpm.tsv")
-)
-```
-
-### gmax_fungi_snps.tsv
-
-``` r
-# Load SNP positions 
-load(here("data", "cageminer_input", "snp_positions.rda"))
-
-# Create a table with columns "Trait", "CHR", and "POS"
-gmax_fungi_snps <- as.data.frame(snp_positions)
-gmax_fungi_snps <- gmax_fungi_snps[, c("seqnames", "start", "Trait")]
-names(gmax_fungi_snps) <- c("CHR", "POS", "Trait")
-
-# Save as a tab-delimited file
-readr::write_tsv(
-    gmax_fungi_snps,
-    file = here("data", "camoco_input", "gmax_fungi_snps.tsv")
+# Save object
+save(
+    gcn,
+    file = here("data", "cageminer_input", "gcn.rda"),
+    compress = "xz"
 )
 ```
 
@@ -217,7 +166,7 @@ sessioninfo::session_info()
     ##  collate  en_US.UTF-8
     ##  ctype    en_US.UTF-8
     ##  tz       Europe/Brussels
-    ##  date     2022-07-11
+    ##  date     2022-07-15
     ##  pandoc   2.17.1.1 @ /usr/lib/rstudio/bin/quarto/bin/ (via rmarkdown)
     ## 
     ## ─ Packages ───────────────────────────────────────────────────────────────────
