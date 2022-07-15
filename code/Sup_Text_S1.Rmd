@@ -1,0 +1,115 @@
+---
+title: "Supplementary Text S1 - cageminer: an R/Bioconductor package to prioritize candidate genes by integrating GWAS and gene coexpression networks"
+author:
+- name: Fabricio Almeida-Silva
+  affiliation: Universidade Estadual do Norte Fluminense Darcy Ribeiro, RJ, Brazil
+- name: Thiago M. Venancio
+  affiliation: Universidade Estadual do Norte Fluminense Darcy Ribeiro, RJ, Brazil
+output:
+  BiocStyle::pdf_document:
+    toc: true
+vignette: |
+  %\VignetteIndexEntry{Supplementary Text S1 - cageminer: an R/Bioconductor package to prioritize candidate genes by integrating GWAS and gene coexpression networks}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+bibliography: cageminer_suptext.bib
+---
+
+# Data description
+
+The example data sets we will use here comprise RNA-seq data on pepper (*Capsicum annuum*) response to Phytophthora root rot [@Kim2018], and GWAS-derived SNPs associated to resistance to Phytophthora root rot [@Siddique2019]. All genomic intervals are stored in GRanges objects, and expression data with sample metadata are stored in SummarizedExperiment objects. Genes encoding transcription factors were retrieved from PlantTFDB 4.0 [@Jin2017], and plant defense-related genes (MapMan annotations) were retrieved from PLAZA Dicots 3.0 [@Proost2015]. Taking a glimpse at the data:
+
+```{r}
+library(cageminer, quietly = TRUE)
+set.seed(123) # for reproducibility
+
+# SNP positions
+data(snp_pos)
+snp_pos
+
+# Gene positions
+data(gene_ranges)
+gene_ranges
+
+# Expression data in FPKM
+data(pepper_se)
+pepper_se
+
+# Chromosome lengths
+data(chr_length)
+chr_length
+
+# Guide genes
+data(guides)
+head(guides)
+
+# Genes enconding TFs
+data(tfs)
+head(tfs)
+```
+
+# Exploratory analysis
+
+Before proceeding to the prioritization steps, it is important to explore the data to look for biologically relevant patterns. First, we can see if SNPs are evenly distributed across chromosomes or if they tend to co-occur in particular chromosomes.
+
+```{r}
+plot_snp_distribution(snp_pos)
+```
+
+We can see that SNPs cluster in chromosome 05. Now, we can see if these SNPs in chromosome 05 are physically close to each other.
+
+```{r}
+plot_snp_circos(chr_length, gene_ranges, snp_pos)
+```
+
+Indeed, they are very close to each other. Finally, we can simulate different sliding windows for the first step of the algorithm (see main text for details) to pick a custom interval.
+
+```{r}
+simulate_windows(gene_ranges, snp_pos)
+```
+
+The plot shows that we can use the default sliding window (2 Mb), as it does not include too many genes. If information on linkage disequilibrium-based genomic intervals is available, we recommend using it.
+
+# Candidate gene prioritization
+
+The three prioritization steps described in the paper can be applied with the functions `mine_step1()`, `mine_step2()`, and `mine_step3()`. Alternatively, the function `mine_candidates()` is a wrapper that combines the three `mine_*` functions to perform candidate gene prioritization in a single step. For the step 2, we will need to infer the gene coexpression network beforehand with the function `exp2gcn()` from the Bioconductor package BioNERO [@Almeida-Silva2021].
+
+```{r}
+# Apply step 1
+step1 <- mine_step1(gene_ranges, snp_pos)
+step1
+
+# Infer the GCN
+sft <- BioNERO::SFT_fit(pepper_se, cor_method = "pearson") 
+gcn <- BioNERO::exp2gcn(pepper_se, cor_method = "pearson", SFTpower = sft$power)
+
+# Apply step 2
+step2 <- mine_step2(pepper_se, gcn, guides, step1$ID)
+step2$candidates
+
+# Apply step 3
+step3 <- mine_step3(pepper_se, candidates = step2$candidates,
+                    sample_group = "PRR_stress")
+step3
+```
+
+# Gene scoring
+
+To conclude, we can score the prioritized candidates and rank them from highest to lowest score.
+
+```{r}
+# Get hubs
+hubs <- BioNERO::get_hubs_gcn(pepper_se, gcn)
+scored_candidates <- score_genes(step3, hubs, tfs)
+scored_candidates
+```
+
+Here, as none of the genes are hubs or TFs, their scores were represented by the $r_{pb}$ coefficients themselves.
+
+# Session info {.unnumbered}
+
+```{r sessionInfo, echo=FALSE}
+sessionInfo()
+```
+
+# References {.unnumbered}
